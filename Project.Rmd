@@ -1,0 +1,374 @@
+---
+title: "Exploring the Worldwide Bureaucracy Indicators"
+author: "By Vedam Akshata Jaishankar, Muthukrishnan Navya, Jain Paridhi, Mitra Reet, Harihara Venkatesan Vaishnavi"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+---
+<style>
+#TOC {
+  color: #708090;
+  font-family: Times New Roman;
+  font-size: 16px; 
+  border-color: #708090;
+}
+header {
+  color: #8B6508;
+  background-color: #F5F5F5;
+  font-family: Times New Roman;
+  font-size: 18px;
+}
+body {
+  color: #00688B;
+  font-family: Times New Roman;
+  background-color: #F5F5F5;
+}
+pre {
+  color: #708090;
+  background-color: #F8F8FF;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, include = TRUE,
+                      fig.align = "center",  out.width = "85%")
+```
+
+# Introduction
+
+The Worldwide Bureaucracy Indicators (WWBI) database is a unique cross-national dataset on public sector employment and wages that aims to fill an information gap, thereby helping researchers, development practitioners, and policymakers gain a better understanding of the personnel dimensions of state capability, the footprint of the public sector within the overall labor market, and the fiscal implications of the public sector wage bill. The dataset is derived from administrative data and household surveys, thereby complementing existing, expert perception-based approaches.
+
+It is classified into 3 different datasets:  
+
+1. `wwbi_data` : dataset containing measurements of bureaucratic indicators.  
+
+2. `wwbi_series` : Contains additional information about specific indicators, such as `indicator_code`, which describes the unique metrics.  
+
+3. `wwbi_country`  : Contains country-level information, identified by `country_code`, which helps in enriching the dataset with country-specific attributes.
+
+In this report, we will be exploring the primary question of:
+
+**How do public sector wage structures differ across regions and gender groups?**
+
+To further divide the main question we will be visualizing the following sub-questions:  
+
+1. How does the wage structure vary over time across regions?  
+Visualisation used : Heat Map  
+
+2. Are there noticeable trends or divergences in male versus female wage premiums within each region?    
+Visualisation used : time series line chart  
+
+3. How does the system of trade influence the wage bill as a percentage of public expenditure across regions?  
+Visualisation used : bar chart  
+
+The `wwbi_full` dataset is a refined and comprehensive version of the Worldwide Bureaucracy Indicators (WWBI) data, created by merging and cleaning data from multiple tables within the WWBI database.  
+
+Do note that that visualizations 2 and 3 are interactive, hovering over a point will display information about the datapoint and the graphs can be zoomed into and panned over.  
+
+**Data Joins and Sources**  
+The wwbi_full dataset (cleaned) is made by combining the three datasets mentioned before (`wwbi_data`, `wwbi_series`, `wwbi_country`). The `wwbi_full` dataset contains detailed information on economic indicators by country. Key variables used in this analysis include:  
+
+1. `year`: The year of the recorded data, formatted as a date (first day of the year).  
+
+2. `country_code`: The country code in uppercase format, uniquely identifying each country. 
+
+3. `region`: Geographic region to which the country belongs. 
+
+4. `income_group`: The income classification of the country, categorized as "Low income," "Lower middle income," "Upper middle income," and "High income." This is stored as an ordered factor to facilitate comparisons across income levels.  
+
+5. `system_of_trade`: The system used for trading, formatted as a factor variable.  
+
+6. `value`: The recorded value of the economic indicator for the specified year and country.  
+
+7. `short_name` and `long_name`: The short and full names of each country.  
+
+8. `x2_alpha_code`: An alternate country code.  
+
+9. `indicator_code` and `indicator_name`: Codes and names identifying the specific economic indicator measured.
+
+# Importing Datasets and Libraries
+```{r libraries}
+library(tidyverse)
+library(readxl)
+library(lubridate)
+library(stringr)
+library(dplyr)
+library(ggthemes)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(plotly)
+```
+
+
+```{r datasets}
+wwbi_data <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2024/2024-04-30/wwbi_data.csv')
+wwbi_series <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2024/2024-04-30/wwbi_series.csv')
+wwbi_country <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2024/2024-04-30/wwbi_country.csv')
+```
+
+
+# Data Cleaning and Summary
+
+To prepare the `wwbi_full` dataset for analysis, the following cleaning steps were applied:
+
+1. **Joining and Selection**:  
+The primary data tables (`wwbi_data`, `wwbi_series`, and `wwbi_country`) were merged using common columns (`country_code` and `indicator_code`). Only relevant columns needed for analysis were retained. 
+
+2. **Data Transformation**:  
+   - **Date Formatting**: The `year` column was converted to a `Date` format (January 1st of each year) to facilitate time-based analysis.
+   - **Factor Levels**: The `income_group` was set as an ordered factor to allow comparisons in ascending order of income levels.
+   - **Standardization**: The `country_code` column was converted to uppercase for consistency across country codes.
+
+3. **Handling Duplicates and Missing Values**:
+   - **Duplicates**: Duplicate entries were removed to ensure unique records.
+   - **Missing Values**: Rows containing missing values were removed. This step was justified as the presence of `NA` values might skew the results or cause inconsistencies in the analysis.  
+
+4. **Validation**:  
+After cleaning, the dataset structure was inspected to verify that all variables were formatted as expected and ready for analysis.
+
+```{r data cleaning}
+wwbi_full <- wwbi_data %>% 
+  inner_join(wwbi_series, by = "indicator_code") %>% 
+  inner_join(wwbi_country, by = "country_code") %>%
+  select(year,country_code,region, income_group, system_of_trade, value, short_name, long_name, x2_alpha_code, indicator_code, indicator_name) %>% 
+  mutate(year=as.Date(paste0(year,"-01-01")),income_group=factor(income_group,levels=c("Low income","Lower middle income","Upper middle income","High income"),ordered=TRUE),system_of_trade=as.factor(system_of_trade),country_code=str_to_upper(country_code)) %>% #converting variables into appropriate types
+  distinct() %>% #keep only unique data
+  na.omit() #remove missing data
+
+head(wwbi_full)
+str(wwbi_full)
+```
+# Visualization 1: How does the wage structure vary over time across regions?
+
+### About the Visual
+
+The following heatmap illustrates a global average wage structure across countries at 5-year intervals. Each panel in the heatmap represents a specific time frame, spanning from 1995 to 2020. This allows for the capturing of temporal trends, enabling comparisons of wage dynamics across both time and geography. This analysis is derived from the BI.WAG.TOTL.GD.ZS indicator, which measures wages as a percentage of GDP, offering a relative sense of how much of a country’s economic output translates into labor earnings.  
+
+In order to prepare the data for the visualization:  
+
+1. The `wage_data_summary` is the summarized data aggregated by country and 5-year intervals, including average wages (avg_wage).  
+
+2. `world` refers to the geographic shapefile containing country boundaries and metadata.  
+
+3. the final joined dataset, `world_wage_map`, combines spatial boundaries with summarized wage data for visualization.
+
+A heat map visualization of the average wage structure is ideal as it gives us clarity of the changes over time across countries, and their magnitude (as observed by respective intensity on the color scale).
+
+```{r Average Wage Structure Across Countries}
+# Load world map data
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+# Summarize the wage data by country and 5-year intervals
+wage_data_summary <- wwbi_full %>%
+  filter(indicator_code == "BI.WAG.TOTL.GD.ZS") %>%
+  mutate(
+    year_interval = cut(
+      lubridate::year(year),  # Extract numeric year
+      breaks = seq(1960, 2025, by = 5),  # 5-year intervals
+      labels = paste(seq(1960, 2020, by = 5), seq(1965, 2025, by = 5), sep = "-"),  # Interval labels
+      include.lowest = TRUE)) %>%  # Include the first year in the first interval
+  group_by(country_code, year_interval) %>%
+  summarize(avg_wage = mean(value, na.rm = TRUE), .groups = "drop") %>%
+  ungroup()
+
+# Join the summarized wage data with the world map data
+world_wage_map <- world %>%
+  left_join(wage_data_summary, by = c("iso_a3" = "country_code")) %>%
+  filter(!is.na(avg_wage))  # Remove rows with NA avg_wage
+
+# Plot the heatmaps for different 5-year intervals
+ggplot(world_wage_map) +
+  geom_sf(aes(fill = avg_wage, text = paste0("<b>Country :</b> ", admin, "<br>",
+              "<b>Year Interval:</b> ", year_interval, "<br>", 
+              "<b>Avergae wage :</b> ", avg_wage, "<br>")), color = "black") +  
+  facet_wrap(~ year_interval) +  # Facet by 5-year intervals
+  scale_fill_viridis_c(name = "Average Wage", direction = -1) +  # Color scale
+  labs(title = "Average Wage Structure Across Countries by 5-Year Intervals",
+    caption = "Source: WWBI Data") +
+  theme_minimal() +
+  theme(strip.text = element_text(size = 10),  # Adjust facet label size
+    plot.title = element_text(hjust = 0.5),  # Center the title
+    axis.text.x = element_text(angle = 90),
+    legend.position = "top")
+
+# saving the plot as a jpeg file for easy reference later
+ggsave("../figures/project_visual1.jpeg")
+```
+### Primary Insights, Observations and Explanation of Results
+
+1. **Regional Wage Disparity**  
+The visualization brings to light the stark regional disparities in wage levels across the globe, with significant variations between high-income and low-income regions. Developed regions, such as North America and Western Europe, consistently display higher wage levels across the years, as represented by darker shades on the heatmap. Many factors contribute to sustained higher wages over time. These regions have well-established labour markets, higher productivity, and advanced economic structures, giving them a competitive edge over other lesser developed countries.  
+In contrast, regions in Sub-Saharan Africa, parts of South Asia, and portions of Latin America are characterized by lighter shades, indicating significantly lower average wages. These regions often face structural challenges such as weaker industrial bases, limited access to global markets, lower productivity, and higher rates of informal employment. The persistent differences in wage levels between these regions and their developed counterparts reflect entrenched economic inequalities. These concerns have remained largely unaddressed, or shown negligible change over the years.  
+The wage disparities also underline the relationship between regional development levels and labor remuneration. While high-income regions benefit from technological advancements, robust infrastructure, and effective governance, low-income regions are often constrained by limited resources, political instability, and lack of investment in human capital. This consistent wage gap raises important questions about global inequality and the mechanisms required to foster more inclusive economic growth.
+
+2. **Temporal Trends**  
+Over the analyzed 5-year intervals, some regions exhibit gradual wage growth, as indicated by the increasing intensity of colors in parts of the map. For example, East Asia and certain areas in South America show consistent improvements in wage levels, signaling their progression as emerging economies. These trends are likely attributed to factors such as industrial expansion, integration into global trade networks, and targeted domestic policies aimed at improving labor conditions.  
+Conversely, several low-income regions demonstrate stagnation in wage levels, with minimal changes in color intensity across intervals. Sub-Saharan Africa and parts of South Asia remain particularly vulnerable, with limited progress in economic development and labor market improvements. These regions' stagnation highlights the challenges of breaking out of cycles of low productivity, poor infrastructure, and reliance on informal employment sectors.  
+The visualization suggests that while globalization and economic reforms have spurred growth in some regions, others have not experienced the same benefits. This dichotomy underscores the uneven nature of global economic progress and the need for more targeted development strategies.  
+
+# Visualization 2: Are there noticeable trends or divergences in male versus female wage premiums within each region?
+
+### About the Visual
+
+This visualization consists of a multiple line plot to display and compare changes in the Wage Premiums over time by gender, faceted by region.
+
+In order to prepare the data for the visual:  
+
+1. The `wage_premium_time_data` tibble was created which kept only the data concerning public sector wage premiums by gender.  
+
+2. The `gender` variable was extracted from the `indicator_code` to clearly distinguish between the wage premiums in the plot (through color coding and separate lines).  
+
+3. The average wage premium `avg_wage_premium` was then calculated for each group of `region`, `gender` and `year`, ignoring any missing values.
+
+The plot selected is ideal for the question as it clearly showcases the trends across each region, with the separate lines for male and female wage premiums to highlight gender-based differences. The lines being colored by `gender` helps one visually track any divergence or convergence between the premiums over time. The facets highlight regional differences and similarities in wage structures. 
+
+```{r Public Sector Wage Premiums Trends}
+# Prepare the data, filtering only relevant rows
+wage_premium_time_data <- wwbi_full %>%
+  filter(indicator_code==c("BI.WAG.PREM.PB.MA","BI.WAG.PREM.PB.FE")) %>%
+  mutate(
+    gender=ifelse(indicator_code=="BI.WAG.PREM.PB.FE","Female","Male"))%>%
+  group_by(region, gender, year) %>%
+  summarize(avg_wage_premium = mean(value, na.rm = TRUE)) %>%
+  ungroup()
+
+# Create the faceted line plot
+visualization2 <- ggplot(wage_premium_time_data, aes(x=year,y=avg_wage_premium,color=gender,group=gender, text = paste0("<b>Average wage premium:</b> ", round(avg_wage_premium,3), "<br>",
+              "<b>Year:</b> ", year(year), "<br>", 
+              "<b>Gender:</b> ", gender, "<br>"))) +
+  geom_line(size=0.8) +
+  geom_point(size=1.3) +
+  labs(title="Public Sector Wage Premium Trends Over Time by Region and Gender",
+       x="Year",y="Average Wage Premium",color="Gender",caption = "Source: WWBI Data") +
+  scale_color_manual(values=c("Male"="lightskyblue","Female"="lightpink2")) +
+  theme_minimal() +
+  facet_wrap(~region) +
+  theme(
+    plot.title = element_text(hjust = 0.5,face="bold", size = 10),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.text = element_text(face = "bold")) 
+
+ggplotly(visualization2, tooltip = "text")
+
+# saving the plot as a jpeg file for easy reference later
+ggsave("../figures/project_visual2.jpeg")
+```
+
+### Primary Insights and Observations
+The line plot aimed to convey 3 main insights:-  
+
+1. **Trend consistency across regions:** By tracking each region individually, we can observe whether wage premiums have followed consistent patterns over time within the region.  
+It can be seen that regions such as Latin America & Caribbean and Europe & Central Asia show stable premiums over time, indicating potentially consistent public sector wage policies. On the other hand, South Asia and Sub-Saharan Africa show High volatility in wage premiums, suggesting economic instability or frequent policy changes that impact public sector wages.  
+
+2. **Gender-based differences:** The plot displays if there are sustained differences between male and female wage premiums in each region, or if the differences converge or diverge over time.  
+Regions such as South Asia have the female wage premium higher than the male wage premium frequently, indicating a larger relative advantage for women in the public sector. In other regions like Middle East & North Africa, the male wage premium tends to be consistently higher, suggesting potential gender-based wage practices.  
+
+3. **Temporal patterns:** The plot helps to identify trends in wage premiums, be it peaks, declines or steadiness. This may help identify and correlate with broader economic or policy changes over time.  
+The wage premium for both genders remain steady in regions like Latin America & Caribbean and decline in others, like Middle East & North Africa. This indicates an overall reduction in the wage advantage of the public sector relative to the private sector.
+
+Note: North America is excluded from the region-based analysis as the data does not contain information regarding gender-based wage premiums for the region
+
+### Explanation of Results
+The data patterns observed in public sector wage premiums across regions and genders may appear so due to a variety of reasons, such as:
+
+1. **Wage Policies and Market Structure**  
+Some regions may exhibit higher wage premiums due to the structure of their labor markets. Regions where public sector jobs offer more stability and benefits may see higher public sector premiums. In contrast, regions with a competitive private sector may have smaller or negative public sector premiums.  
+
+2. **Cultural and Structural Factors**  
+Social norms around gender roles and labour structures may contribute to the disparities. For example, regions such as South Asia showcase higher female wage premiums as they tend to pick up and benefit more from public sector jobs when compared to men. These include roles such as teachers and healthcare workers, which are stereotypically occupied by women. This may also be a result of incentivization of women in the workforce.  
+
+3. **Economic Stability**  
+On observation, it can be assumed that stable government economic regulations (such as in Europe & Central Asia) showcase stable public sector wage premiums and gender-equality, when compared to regions experiencing economic and other turbulence like Sub-Saharan Africa.
+
+# Visualization 3: How does the system of trade influence the wage bill as a percentage of public expenditure across regions?  
+
+### About the Visual
+
+The visualization utilized is a diverging bar chart to depict relation between the wage bill as a percentage of public expenditure and the regions.  
+
+In order to prepared the data for the visual:  
+
+1. The `wage_system_of_trade` tibble was created, which contains the filtered data so that we can specifically look at the data corresponding to “BI.WAG.TOTL.PB.ZS” `indicator_code` which is “Wage bill as a percentage of Public Expenditure”.  
+
+2. The `Total` variable was calculated based on grouping by `region` and `system_of_trade`, it is a summation of all the values.  
+
+The plot selected is ideal for the question as it clearly showcases the differences based on `system_of_trade`. Additionally, filling it by `region` helps one observe the segregation of the `Total` for each region.
+
+```{r System of trade based on wage bill}
+wage_system_of_trade <- wwbi_full %>%
+  filter(indicator_code == "BI.WAG.TOTL.PB.ZS") %>%
+  group_by(region, system_of_trade) %>%
+  summarise(Total = sum(value, na.rm = TRUE)) %>%
+  ungroup()
+
+visualization3 <- ggplot(wage_system_of_trade , aes(y = region, x = Total, fill = system_of_trade, text = paste0("<b>System of Trade :</b> ", system_of_trade, "<br>",                                         "<b>Rounded wage bill as % of public expenditure:</b> ", round(Total), "<br>"))) +
+  geom_col(data = wage_system_of_trade %>% filter(system_of_trade == "General trade system")) +
+  geom_col(data = wage_system_of_trade %>% filter(system_of_trade == "Special trade system"), aes(x = -Total)) +  
+  labs(y = "", x = "Wage bill as a % of Public Expenditure", fill = "System of Trade", caption = "Source:Worldwide Bureaucracy Indicators (WWBI) dataset from the World Bank", title = "System of trade vs the wage bill(%) of public expense across regions") +
+  scale_x_continuous(labels = abs) +
+  scale_fill_manual(values=c("General trade system" = "maroon", "Special trade system" = "darkorange"))+
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 10))
+
+ggplotly(visualization3, tooltip = "text")
+
+# saving the plot as a jpeg file for easy reference later
+ggsave("../figures/project_visual3.jpeg")
+```
+
+### Primary Insights and Observations
+
+1. **The relationship between wage bills and the system of trade**  
+There is no definitive trend that is seen that correlates between the wage bill variable and system of trade variable. This shows that there is no relation between the procedure for trade and goods and its influence on the public expenditure as a wage bill. 
+2. **The relationship between the type of system of trade and the region**  
+There are 7 regions that have been plotted for. For certain regions there is a surge in the public expenditure relating to the type of system of trade. As seen in Sub-Saharan Africa and East Asia & Pacific, where the General trade system has more wage bill as a percentage of public expenditure compared to the special trade system and the opposite is seen for Latin America & Caribbean. While South Asia and North America have opted for no special trade system procedures for goods. An interesting trend is seen for the Middle East & North America and Latin America & Caribbean where there is almost equal influence of  the two trade systems set on public expenditure. 
+3. When seen as an overview the influence of `system_of_trade` on wage bill as a percentage of public expenditure is almost equal but the different trends are seen when observed region wise.  
+
+### Explanation of Results
+The data patterns observed in wage bills across regions and systems of trade may appear so due to a variety of reasons, such as:
+
+1. **Influence of Trade Systems and Regional Policies**  
+The type of trade system in place—whether a general or special trade system—can be shaped by regional policies that influence public expenditure. In the Middle East & North Africa and Latin America & Caribbean regions, specific trade policies help stabilize the impact of the chosen trade system on wage-related public spending. These regional policies can either increase or decrease the wage bill portion of public expenditure.  
+2. **Variations in Trade Systems and Cost Allocation**  
+Regions with more strict trade policies often incur higher wage costs, as their complex requirements demand more resources and regulatory oversight. In contrast, countries with simpler trade systems face lower wage bills due to reduced vetting and resource needs.
+3. **Size of the Public Sector and Economic Structure**  
+The impact on wage bills also varies with the size of the public sector and economic structure of each region. For example, North America has a relatively smaller public sector, resulting in lower wage-related public spending. In contrast, regions like Sub-Saharan Africa and East Asia & Pacific have larger public sectors and rely more heavily on general trade systems, leading to higher wage bills.
+
+# Summarising overall pattern  
+
+The analysis of income structures and public sector wage distributions across multiple factors is explained using the three visualizations. Each visualization answers a specific part of the main question, helping to give a clear understanding of global income structures.
+
+The heatmap visualization shows how average wage structures change over time across different regions, using 5-year intervals. It reveals major differences in wage levels between regions. The line plot examines how male and female wage premiums in the public sector differ across regions and change over time. It highlights several important patterns such as stable wage premiums over time, gender differences and fluctuations due to policy changes. The bar chart explores how different trade systems (general and special) affect wage bills as a percentage of public expenditure across regions. The analysis shows no universal trend linking trade systems to public wage bill, which suggests that trade systems alone do not directly determine how much governments spend on wages. Regional differences are highlighted by showcasing the balanced impact of regional trade policies and public sector structures in shaping wage bills.  
+
+Together, these visualizations provide insights into how regional, gender-based, and systemic factors affect income structures and public sector wage distributions. High-income regions consistently have higher wage levels, while emerging economies show slow improvements, and low-income regions face persistent challenges. Gender wage dynamics vary widely, reflecting cultural and economic differences across regions. Finally, the influence of trade systems on public wage expenditure is complex and varies by region, shaped by local policies and economic structures. These findings emphasize the need for focused strategies to reduce inequalities and encourage fair economic growth.
+
+# Teamwork
+
+The data cleaning code and references was done individually by everyone and then compiled.  
+**Vedam Akshata Jaishankar**  
+1. Visualization 2 code  
+2. Visualization 2 summary  
+3. Rmd Compilation  
+**Muthukrishnan Navya**  
+1. Visualization 3 code  
+2. Visualization 3 summary  
+**Jain Paridhi**  
+1. Visualization 1 code  
+2. Visualization 1 summary  
+**Mitra Reet**  
+1. Visualization 2 code  
+2. Data Cleaning and Summary  
+3. Overall Patterns Summarized  
+**Harihara Venkatesan Vaishnavi**  
+1. Visualization 1 code  
+2. Introduction
+
+# References
+1. Data Source: Our data source is from the TidyTuesday Project, Worldwide Bureaucracy Indicators
+https://github.com/rfordatascience/tidytuesday/blob/master/data/2024/2024-04-30/readme.md 
+2. World Development Indicators: https://datatopics.worldbank.org/world-development-indicators/
+3. World Bank. (2024). Worldwide Bureaucracy Indicators. Retrieved from the World Bank Data Catalog : https://datacatalog.worldbank.org/search/dataset/0038132/Worldwide%20Bureaucracy%20Indicators?version=3
+4. World Bank Blogs. (2024). Introducing the Worldwide Bureaucracy Indicators. : https://blogs.worldbank.org/en/developmenttalk/introducing-worldwide-bureaucracy-indicators
+5. Center for Global Development. (2024). Analyzing Public Sector Employment and Wages with the WWBI : https://www.cgdev.org/blog/three-lessons-world-banks-new-worldwide-bureaucracy-indicators-database
